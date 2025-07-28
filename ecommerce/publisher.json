@@ -1,6 +1,6 @@
 {
   "name": "ecommerce",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "A sample package that uses fake ecommerce data for exploring MS2 features",
   "data_sources": [
     {

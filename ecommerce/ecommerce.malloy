@@ -1,0 +1,191 @@
+source: users is bq_demo.table('ecommerce_bq.users') extend {
+
+  dimension:
+
+    #(ms2doc) Full name of the user
+    full_name is concat(first_name, ' ', last_name)
+
+    #(ms2doc) Combined location information for the user
+    location is concat(city, ', ', state, ', ', country)
+
+    #(ms2doc) Bucket for account age
+    account_age_bucket is
+      pick '<1 Year' when days(created_at::timestamp to now) < 365
+      pick '1-3 Years' when days(created_at::timestamp to now) < (365 * 3)
+      else '>3 Years'
+
+    #(ms2doc) CLean gender information handling nulls
+    gender_clean is gender ?? 'Unknown'
+
+    #(ms2doc) Clean state information by handling NULLs
+    state_clean is state ?? 'Unknown'
+
+    #(ms2doc) Latitude bucket
+    latitude_bucket is floor(latitude / 10) * 10
+
+    #(ms2doc) Longitude bucket
+    longitude_bucket is floor(longitude / 10) * 10
+
+  measure:
+
+    #(ms2doc) Number of users
+    user_count is count()
+
+    #(ms2doc) Number of unique cities
+    unique_cities is count(city)
+
+    #(ms2doc) The number of users created in the last year
+    users_created_last_year is user_count {where: created_at > now - 365 days}
+
+}
+
+source: products is bq_demo.table('ecommerce_bq.products') extend {
+
+  dimension:
+
+    #(ms2doc) Length of the product name
+    product_name_length is length(name)
+
+    #(ms2doc) Categorization of product prices into ranges
+    price_range is
+      pick '<$20' when retail_price < 20
+      pick '$20-$50' when retail_price < 50
+      else '>$50'
+
+    # percent
+    #(ms2doc) Percentage profit margin for a product
+    profit_margin_percent is (retail_price - cost) / retail_price
+
+    #(ms2doc) Concatenation of unique product id with department code
+    sku_department is concat(sku,' - ', department)
+
+    #(ms2doc) Flag indicating if the product has a brand
+    is_branded is brand is not null
+
+  measure:
+
+    # currency
+    #(ms2doc) Average retail price across all items
+    average_retail_price is avg(retail_price)
+
+    # currency
+    #(ms2doc) Total cost of all items
+    total_cost is sum(cost)
+
+    #(ms2doc) Number of unique products
+    count_of_products is count(id)
+
+    # percent
+    #(ms2doc) Average profit margin across all included items
+    average_profit_margin is avg((retail_price - cost) / retail_price)
+
+}
+
+source: inventory_items is bq_demo.table('ecommerce_bq.inventory_items') extend {
+
+  join_one:
+
+    products on product_id = products.id
+
+  dimension:
+
+    # duration
+    #(ms2doc) Number of days between product creation and sale.
+    product_age_days is days(created_at::timestamp to sold_at::timestamp)
+
+    # percent
+    #(ms2doc) Percentage profit margin on the product.
+    profit_margin_percent is (product_retail_price - cost) / cost
+
+    #(ms2doc) Categorization of the product retail price into price ranges.
+    product_price_range is
+      pick '<$25' when product_retail_price < 25
+      pick '$25-$75' when product_retail_price < 75
+      pick '$75-$150' when product_retail_price < 150
+      else '>$150'
+
+    #(ms2doc) Concatenation of department and category
+    product_department_category is concat(product_department, ' - ', product_category)
+
+  measure:
+
+    # currency
+    #(ms2doc) Total revenue generated from the sales of inventory items.
+    total_revenue is sum(product_retail_price)
+
+    # percent
+    #(ms2doc) Average profit margin percentage across all inventory items.
+    average_profit_margin is avg(profit_margin_percent)
+
+    # duration
+    #(ms2doc) Average number of days between inventory creation and sale.
+    average_product_age is avg(product_age_days)
+
+    # currency
+    #(ms2doc) Total cost of all products
+    total_cost is sum(cost)
+
+}
+
+source: order_items is bq_demo.table('ecommerce_bq.order_items') extend {
+
+  join_one:
+
+    inventory_items on inventory_item_id = inventory_items.id
+
+  dimension:
+
+    # duration
+    #(ms2doc) Number of days between when the item shipped and when it was delivered
+    time_to_deliver is days(shipped_at::timestamp to delivered_at::timestamp)
+
+    # duration
+    #(ms2doc) The difference between the expected delivery time and the actual delivery time in days
+    delivery_delay is days(shipped_at::timestamp to delivered_at::timestamp) - days(created_at::timestamp to shipped_at::timestamp)
+
+    #(ms2doc) Simplified order status categorizing various statuses
+    order_status is status ?
+      pick 'Shipped' when 'Shipped'
+      pick 'Delivered' when 'Delivered'
+      pick 'Returned' when 'Returned'
+      else 'Other'
+
+    # duration
+    #(ms2doc) Number of days from order creation to shipping
+    time_to_ship is days(created_at::timestamp to shipped_at::timestamp)
+
+    #(ms2doc) Category that the product belongs to
+    product_category_2 is inventory_items.products.category ?? 'Unknown'
+
+  measure:
+
+    # currency
+    #(ms2doc) Total sales revenue from order items
+    total_sales is sale_price.sum()
+
+    # currency
+    #(ms2doc) Average sale price of items in the order items
+    average_sale_price is sale_price.avg()
+
+    #(ms2doc) Number of order items
+    order_item_count is count()
+
+    #(ms2doc) Number of items that were returned
+    returned_item_count is count() { where: status = 'Returned' }
+
+    # currency
+    #(ms2doc) Average cost across included items
+    average_cost is inventory_items.cost.avg()
+
+
+  view: sales_by_brand is {
+    group_by: inventory_items.product_brand
+    aggregate: total_sales
+  
+    # bar_chart
+    nest: by_age_group is {
+      group_by: inventory_items.product_age_days
+      aggregate: total_sales
+    }
+  }
+}
