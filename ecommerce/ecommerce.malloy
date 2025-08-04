@@ -178,11 +178,10 @@ source: order_items is bq_demo.table('ecommerce_bq.order_items') extend {
     average_cost is inventory_items.cost.avg()
 
 
+  # bar_chart 
   view: sales_by_brand is {
     group_by: inventory_items.product_brand
     aggregate: total_sales
-  
-    # bar_chart
     nest: by_age_group is {
       group_by: inventory_items.product_age_days
       aggregate: total_sales
